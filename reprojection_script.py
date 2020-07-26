@@ -7,7 +7,9 @@ import re
 import cv2
 import open3d as o3d
 import sys
+import time
 
+#reads calibration file from the middlebury dataset
 def read_calib(calib_file_path):
 
     with open(calib_file_path, 'r') as calib_file:
@@ -18,6 +20,7 @@ def read_calib(calib_file_path):
 
     return calib
 
+#reads a pfm image from the middlebury dataset
 def read_pfm(pfm_file_path):
 
     with open(pfm_file_path, 'rb') as pfm_file:
@@ -46,6 +49,7 @@ def read_pfm(pfm_file_path):
 
     return disparity, [(height, width, channels), scale]
 
+
 def create_depth_map(pfm_file_path, calib=None):
 
     disparity, [shape,scale] = read_pfm(pfm_file_path)
@@ -67,6 +71,7 @@ def create_depth_map(pfm_file_path, calib=None):
         dmap = DepthMap(shape[0], shape[1], depth_map)
         return dmap
 
+#displays the image
 def show(img, win_name='image'):
 
     if img is None:
@@ -77,11 +82,10 @@ def show(img, win_name='image'):
         cv2.waitKey()
         cv2.destroyWindow(win_name)
 
+
+#Basic Pinhole Camera Model
+#intrinsic params from fov and sensor width and height in pixels
 def intrinsic_from_fov(height, width, fov=90):
-    """
-    Basic Pinhole Camera Model
-    intrinsic params from fov and sensor width and height in pixels
-    """
     px, py = (width / 2, height / 2)
     hfov = fov / 360. * 2. * np.pi
     fx = width / (2. * np.tan(hfov / 2.))
@@ -99,11 +103,25 @@ def main(filepath):
     pfm_file_dir = Path(r'dataset/', filepath)
     calib_file_path = pfm_file_dir.joinpath('calib.txt')
     disp_left = pfm_file_dir.joinpath('disp0.pfm')
+    disp_right = pfm_file_dir.joinpath('disp1.pfm')
+    img_left = pfm_file_dir.joinpath('im0.png')
+    img_right = pfm_file_dir.joinpath('im1.png')
+
+    colors_left = cv2.imread(str(img_left)) #bgr #for some reason it doesn't work if I don't do str()
+    colors_left = cv2.cvtColor(colors_left, cv2.COLOR_BGR2RGB) #rgb
+    size = int(colors_left.size/3)
+    colors_left = colors_left.flatten()
+    colors_left = [x/255 for x in colors_left]
+    colors_left = np.reshape(colors_left, (size, 3))
+    print(colors_left)
 
     # calibration information
     calib = read_calib(calib_file_path)
-    # create depth map
+
+    # create depth maps (L, R)
     depth_map_left = create_depth_map(disp_left, calib)
+    depth_map_right = create_depth_map(disp_right, calib)
+
     # print(depth_map_left)
     # show(depth_map_left.map, "depth_map")
 
@@ -128,8 +146,21 @@ def main(filepath):
 
     pcd_cam = o3d.geometry.PointCloud()
     pcd_cam.points = o3d.utility.Vector3dVector(cam_points.T[:, :3])
-    pcd_cam.transform([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])
+    pcd_cam.colors = o3d.utility.Vector3dVector(colors_left) #use image colors
+
+    pcd_cam.transform([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]]) #to prevent it from being upside down
     o3d.visualization.draw_geometries([pcd_cam])
+
+def pixel_coord_np(width, height):
+    """
+    Pixel in homogenous coordinate
+    Returns:
+        Pixel coordinate:       [3, width * height]
+    """
+    x = np.linspace(0, width - 1, width).astype(np.int)
+    y = np.linspace(0, height - 1, height).astype(np.int)
+    [x, y] = np.meshgrid(x, y)
+    return np.vstack((x.flatten(), y.flatten(), np.ones_like(x.flatten())))
 
 class DepthMap:
     def __init__(self, height, width, dmap):
@@ -139,6 +170,6 @@ class DepthMap:
 
 if __name__ == '__main__':
 
-    #weird error if I try to error check for number of arguments?! rip
+    #weird error when I try to error check for number of arguments?! rip
     main(sys.argv[1]) 
 
